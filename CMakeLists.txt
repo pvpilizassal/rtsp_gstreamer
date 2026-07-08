@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(rtsp_gstreamer VERSION 0.0.2 LANGUAGES CXX)
+project(rtsp_gstreamer VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -32,6 +32,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(rtsp_gstreamer
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
+        gst_ptr.h
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET rtsp_gstreamer APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
