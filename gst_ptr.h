@@ -12,6 +12,13 @@ public:
         reset();
     }
 
+    void reset(T* ptr = nullptr) noexcept {
+        if (m_ptr) {
+            Deleter(m_ptr);
+        }
+        m_ptr = ptr;
+    }
+
 private:
     T* m_ptr = nullptr;
 };
