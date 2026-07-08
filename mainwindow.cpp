@@ -1,10 +1,12 @@
 #include "mainwindow.h"
-#include "./ui_mainwindow.h"
+#include "version.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
                                           ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    setWindowTitle("RTSP Viewer (Qt6 + GStreamer)");
+    QString windowTitle = QString("RTSP Viewer v%1 (Qt6 + GStreamer)")
+                              .arg(PROJECT_VERSION_STR);
+    setWindowTitle(windowTitle);
     resize(800, 600);
 }

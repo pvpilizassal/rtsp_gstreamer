@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(rtsp_gstreamer VERSION 0.1 LANGUAGES CXX)
+project(rtsp_gstreamer VERSION 0.0.2 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -20,6 +20,13 @@ set(PROJECT_SOURCES
         mainwindow.h
         mainwindow.ui
 )
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/version.h"
+)
+
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(rtsp_gstreamer
