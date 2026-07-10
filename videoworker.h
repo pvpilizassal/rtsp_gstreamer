@@ -27,7 +27,9 @@ protected:
 
 private:
     // Си-функция обратного вызова для обработки динамических портов rtspsrc
-    static void onPadAdded(GstElement *src, GstPad *newPad, gpointer data);
+    //static void onPadAdded(GstElement *src, GstPad *newPad, gpointer data);
+    static void  onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer data);
+    static void  onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer data);
     bool buildPipeline();
     void resetPtrs();
 
