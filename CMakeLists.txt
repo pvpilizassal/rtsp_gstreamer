@@ -34,6 +34,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_SOURCES}
         gst_ptr.h
         gst_types.h
+        videoworker.h videoworker.cpp
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET rtsp_gstreamer APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
