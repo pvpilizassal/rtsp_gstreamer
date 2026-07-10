@@ -7,6 +7,8 @@
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QLineEdit>
+#include <memory>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -35,5 +37,8 @@ private:
     QPushButton* m_btnConnect = nullptr;
     QPushButton* m_btnDisconnect = nullptr;
     QLabel* m_lblStatus = nullptr;
+    QLineEdit* m_txtUrl = nullptr;
+
+    QWidget* m_videoContainer = nullptr;
 };
 #endif // MAINWINDOW_H

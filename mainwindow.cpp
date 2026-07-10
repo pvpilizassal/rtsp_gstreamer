@@ -20,21 +20,32 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
 
     auto* centralWidget = new QWidget(this);
     auto* mainLayout = new QVBoxLayout(centralWidget);
-    auto* ctrlLayout = new QHBoxLayout();
+    mainLayout->setContentsMargins(5, 5, 5, 5);
 
+    auto* ctrlLayout = new QHBoxLayout();
     m_btnConnect = new QPushButton("Connect", this);
     m_btnDisconnect = new QPushButton("Disconnect", this);
     m_lblStatus = new QLabel("Status: Disconnected", this);
+    m_txtUrl = new QLineEdit(this);
 
-    m_btnDisconnect->setEnabled(false);
-
+    ctrlLayout->addWidget(new QLabel("RTSP URL:", this));
+    // растяжка лайн-эдита на длину окна
+    ctrlLayout->addWidget(m_txtUrl, 1);
     ctrlLayout->addWidget(m_btnConnect);
     ctrlLayout->addWidget(m_btnDisconnect);
     ctrlLayout->addWidget(m_lblStatus);
     ctrlLayout->addStretch();
+    m_btnDisconnect->setEnabled(false);
 
     mainLayout->addLayout(ctrlLayout);
-    mainLayout->addStretch();
+    //mainLayout->addStretch();
+
+    m_videoContainer = new QWidget(this);
+    m_videoContainer->setAttribute(Qt::WA_OpaquePaintEvent, true);
+    m_videoContainer->setAttribute(Qt::WA_NoSystemBackground, true);
+
+    // растяжка видео на все окно
+    mainLayout->addWidget(m_videoContainer, 1);
 
     setCentralWidget(centralWidget);
 
@@ -50,8 +61,16 @@ MainWindow::~MainWindow() = default;
 
 void MainWindow::onConnectClicked()
 {
+    QString url = m_txtUrl->text().trimmed();
+    if (url.isEmpty()) {
+        m_lblStatus->setText("Status: Error (Empty URL)");
+        return;
+    }
+
     m_btnConnect->setEnabled(false);
-    m_worker->startStreaming();
+    m_txtUrl->setEnabled(false);
+
+    m_worker->startStreaming(url, m_videoContainer->winId());
 }
 
 void MainWindow::onDisconnectClicked()
@@ -70,6 +89,7 @@ void MainWindow::onStatusChanged(const QString &status)
         m_btnConnect->setEnabled(false);
     } else if (status == "Disconnected" || status == "Error") {
         m_btnConnect->setEnabled(true);
+        m_txtUrl->setEnabled(true);
         m_btnDisconnect->setEnabled(false);
     }
 }
