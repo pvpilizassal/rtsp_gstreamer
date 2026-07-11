@@ -49,6 +49,14 @@ bool VideoWorker::buildPipeline()
     m_decodebin = gst_element_factory_make("decodebin", "decoder");
     m_videosink = gst_element_factory_make("d3d11videosink", "sink");
 
+    g_object_set(G_OBJECT(m_source),
+                 "location"  , m_rtspUrl.toUtf8().constData(),
+                 "latency"   , 100,
+                 "protocols" , 0x4,      // принудительно TCP
+                 "retry"     , 1000,     // пытаться переподключаться при обрыве
+                 "timeout"   , 5000000,  // таймаут (мкс)
+                 nullptr);
+
     if (!m_pipeline || !m_source || !m_decodebin || !m_videosink) {
         qCritical() << "Error of creating pipeline's elements";
         return false;
@@ -60,7 +68,7 @@ bool VideoWorker::buildPipeline()
     // уменьшаем задержку rtspsrc до 100мс (по дефолту 2000мс)
     g_object_set(G_OBJECT(m_source), "latency", 100, nullptr);
 
-    // добавляем элементы в пайплайн (владение не передается)
+    // добавляем элементы в пайплайн (владение передается)
     // GStreamer увеличивает внутренний счетчик ссылок
     // при уничтожении папйплайна счетчик уменьшится, а объекты очистятся через обертку
     gst_bin_add_many(GST_BIN(m_pipeline.get()), m_source, m_decodebin, m_videosink, nullptr);
@@ -68,17 +76,17 @@ bool VideoWorker::buildPipeline()
     // у "холодного" плагина rtspsrc нет выхода, ему нечем связаться с декодером
     // когда rtspsrc примет входной поток, у него появится выход
     // подключаем си-сигнал "pad-added", который сработает, когда поток подключится к камере
-    g_signal_connect(m_source, "pad-added", G_CALLBACK(VideoWorker::onPadAdded), m_decodebin);
+    g_signal_connect(m_source, "pad-added", G_CALLBACK(VideoWorker::onDecodebinPadAdded), m_decodebin);
 
     // также и у decodebin нет статического выхода
-    g_signal_connect(m_decodebin, "pad-added", G_CALLBACK(VideoWorker::onPadAdded), m_videosink);
+    g_signal_connect(m_decodebin, "pad-added", G_CALLBACK(VideoWorker::onRtspsrcPadAdded), m_videosink);
 
     return true;
 }
 
-void VideoWorker::onPadAdded(GstElement *src, GstPad *newPad, gpointer data) {
-    auto *target = GST_ELEMENT(data);
-    GstPad *targetPad = gst_element_get_static_pad(target, "sink");
+void VideoWorker::onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer data) {
+    auto *decodebin = GST_ELEMENT(data);
+    GstPad *targetPad = gst_element_get_static_pad(decodebin, "sink");
 
     if (gst_pad_is_linked(targetPad)) {
         gst_object_unref(targetPad);
@@ -90,24 +98,41 @@ void VideoWorker::onPadAdded(GstElement *src, GstPad *newPad, gpointer data) {
     const gchar *mediaKey = gst_structure_get_name(capsStruct);
 
     // rtspsrc предоставляет поле "media" (video/audio/application)
-    // decodebin предоставляет поле "application/"
-    if (mediaKey && g_str_has_prefix(mediaKey, "video/")) {
+    if (mediaKey && g_str_has_prefix(mediaKey, "video")) {
         if (gst_pad_link(newPad, targetPad) != GST_PAD_LINK_OK) {
             qCritical() << "Error connecting rtspsrc to decodebin";
         } else {
             qDebug() << "rtspsrc successfully linked to decodebin";
         }
     }
-    else if (mediaKey && g_str_has_prefix(mediaKey, "application/")) {
+
+    gst_caps_unref(caps);
+    gst_object_unref(targetPad);
+}
+
+// 2. Обработчик для decodebin (динамически подключает к videosink)
+void VideoWorker::onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer data) {
+    auto *videosink = GST_ELEMENT(data);
+    GstPad *targetPad = gst_element_get_static_pad(videosink, "sink");
+
+    if (gst_pad_is_linked(targetPad)) {
+        gst_object_unref(targetPad);
+        return;
+    }
+
+    GstCaps *caps = gst_pad_query_caps(newPad, nullptr);
+    GstStructure *capsStruct = gst_caps_get_structure(caps, 0);
+    const gchar *name = gst_structure_get_name(capsStruct);
+
+    // decodebin выдает "video/x-raw..." после декодирования
+    if (name && g_str_has_prefix(name, "application/")) {
         if (gst_pad_link(newPad, targetPad) != GST_PAD_LINK_OK) {
             qCritical() << "Error connecting decodebin to videosink";
         } else {
             qDebug() << "decodebin successfully linked to videosink";
         }
     }
-    else {
-        qDebug() << "Error";
-    }
+
     gst_caps_unref(caps);
     gst_object_unref(targetPad);
 }
