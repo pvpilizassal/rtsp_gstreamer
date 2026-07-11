@@ -26,7 +26,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
     m_btnConnect = new QPushButton("Connect", this);
     m_btnDisconnect = new QPushButton("Disconnect", this);
     m_lblStatus = new QLabel("Status: Disconnected", this);
-    m_txtUrl = new QLineEdit(this);
+    m_txtUrl = new QLineEdit(this); // rtsp://127.0.0.1:8554/cam
 
     ctrlLayout->addWidget(new QLabel("RTSP URL:", this));
     // растяжка лайн-эдита на длину окна

@@ -27,22 +27,23 @@ protected:
 
 private:
     // Си-функция обратного вызова для обработки динамических портов rtspsrc
-    //static void onPadAdded(GstElement *src, GstPad *newPad, gpointer data);
-    static void  onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer data);
-    static void  onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer data);
+    static void onPadAdded(GstElement *src, GstPad *newPad, gpointer data);
+    //static void  onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer data);
+    //static void  onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer data);
     bool buildPipeline();
     void resetPtrs();
 
     GMainLoopPtr m_mainLoop;
+    GstElementPtr m_pipeline;
+
     QMutex m_mutex;
 
     QString m_rtspUrl;
     WId m_winId = 0;
 
-    GstElementPtr m_pipeline;
-    GstElementPtr m_source;
-    GstElementPtr m_decodebin;
-    GstElementPtr m_videosink;
+    GstElement* m_source;
+    GstElement* m_decodebin;
+    GstElement* m_videosink;
 };
 
 #endif // VIDEOWORKER_H
