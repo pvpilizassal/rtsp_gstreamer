@@ -12,6 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 find_package(PkgConfig REQUIRED)
+
 pkg_check_modules(GSTREAMER REQUIRED gstreamer-1.0 gstreamer-video-1.0)
 
 set(PROJECT_SOURCES
@@ -84,3 +85,5 @@ install(TARGETS rtsp_gstreamer
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(rtsp_gstreamer)
 endif()
+enable_testing()
+add_subdirectory(test_gst_leaks)

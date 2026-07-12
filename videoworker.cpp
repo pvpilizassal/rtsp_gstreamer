@@ -61,6 +61,11 @@ bool VideoWorker::buildPipeline()
     m_decodebin = gst_element_factory_make("decodebin", "decoder");
     m_videosink = gst_element_factory_make("d3d11videosink", "sink");
 
+    if (!m_pipeline || !m_source || !m_decodebin || !m_videosink) {
+        qCritical() << "Error of creating pipeline's elements";
+        return false;
+    }
+
     g_object_set(G_OBJECT(m_source),
                  "location"  , m_rtspUrl.toUtf8().constData(), // устанавливаем url в элемент rtspsrc
                  "latency"   , 100,      // уменьшаем задержку rtspsrc до 100мс
@@ -68,11 +73,6 @@ bool VideoWorker::buildPipeline()
                  "retry"     , 1000,     // пытаться переподключаться при обрыве
                  "timeout"   , 5000000,  // таймаут (мкс)
                  nullptr);
-
-    if (!m_pipeline || !m_source || !m_decodebin || !m_videosink) {
-        qCritical() << "Error of creating pipeline's elements";
-        return false;
-    }
 
     // добавляем элементы в пайплайн (владение передается)
     // GStreamer увеличивает внутренний счетчик ссылок
