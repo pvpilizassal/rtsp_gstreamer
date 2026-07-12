@@ -38,7 +38,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
     m_btnDisconnect->setEnabled(false);
 
     mainLayout->addLayout(ctrlLayout);
-    //mainLayout->addStretch();
+
+    auto* underLayout = new QHBoxLayout();
+    m_lblResolution = new QLabel("Resolution: -", this);
+    m_lblCodec = new QLabel("Codec: -", this);
+    m_lblFPS = new QLabel("FPS: -", this);
+    underLayout->addWidget(m_lblFPS);
+    underLayout->addWidget(m_lblCodec);
+    underLayout->addWidget(m_lblResolution);
+    mainLayout->addLayout(underLayout);
 
     m_videoContainer = new QWidget(this);
     m_videoContainer->setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -54,6 +62,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
 
     // Qt::QueuedConnection выберется автоматически, тк сигналы идут из другого потока
     connect(m_worker, &VideoWorker::statusChanged, this, &MainWindow::onStatusChanged);
+
+    connect(m_worker, &VideoWorker::videoInfoUpdated, this, &MainWindow::onVideoInfoUpdated);
 }
 
 // m_worker удалится сам, так как у него parent = this
@@ -77,6 +87,9 @@ void MainWindow::onDisconnectClicked()
 {
     m_btnDisconnect->setEnabled(false);
     m_worker->stopStreaming();
+    m_lblResolution->setText(QString("Resolution:-"));
+    m_lblCodec->setText(QString("Codec:-"));
+    m_lblFPS->setText(QString("FPS:-"));
 }
 
 void MainWindow::onStatusChanged(const QString &status)
@@ -92,4 +105,10 @@ void MainWindow::onStatusChanged(const QString &status)
         m_txtUrl->setEnabled(true);
         m_btnDisconnect->setEnabled(false);
     }
+}
+
+void MainWindow::onVideoInfoUpdated(int width, int height, const QString &codec)
+{
+    m_lblResolution->setText(QString("Resolution: %1x%2").arg(width).arg(height));
+    m_lblCodec->setText(QString("Codec: %1").arg(codec));
 }

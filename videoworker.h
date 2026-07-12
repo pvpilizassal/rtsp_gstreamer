@@ -21,15 +21,22 @@ public:
 signals:
     // сигнал для отправки статуса в UI
     void statusChanged(const QString &status);
+    void videoInfoUpdated(int width, int height, const QString &codec);
+
 
 protected:
     void run() override;
 
 private:
     // Си-функция обратного вызова для обработки динамических портов rtspsrc
-    //static void onPadAdded(GstElement *src, GstPad *newPad, gpointer data);
     static void  onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer data);
     static void  onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer data);
+
+    static GstPadProbeReturn onVideoSinkProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data);
+    static void onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer user_data);
+
+    QString extractCodecName(const GstStructure *s);
+
     bool buildPipeline();
     void resetPtrs();
 
@@ -39,11 +46,18 @@ private:
     QMutex m_mutex;
 
     QString m_rtspUrl;
+    QString m_codec;
+    QString m_lastCodec;
+    int m_width = -1;
+    int m_height = -1;
+
     WId m_winId = 0;
 
     GstElement* m_source = nullptr;
     GstElement* m_decodebin = nullptr;
     GstElement* m_videosink = nullptr;
+
+    gulong m_busWatchId = 0;
 };
 
 #endif // VIDEOWORKER_H
