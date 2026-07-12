@@ -50,8 +50,8 @@ bool VideoWorker::buildPipeline()
     m_videosink = gst_element_factory_make("d3d11videosink", "sink");
 
     g_object_set(G_OBJECT(m_source),
-                 "location"  , m_rtspUrl.toUtf8().constData(),
-                 "latency"   , 100,
+                 "location"  , m_rtspUrl.toUtf8().constData(), // устанавливаем url в элемент rtspsrc
+                 "latency"   , 100,      // уменьшаем задержку rtspsrc до 100мс
                  "protocols" , 0x4,      // принудительно TCP
                  "retry"     , 1000,     // пытаться переподключаться при обрыве
                  "timeout"   , 5000000,  // таймаут (мкс)
@@ -62,12 +62,6 @@ bool VideoWorker::buildPipeline()
         return false;
     }
 
-    // устанавливаем url в элемент rtspsrc, nullptr заканчивает список свойств
-    g_object_set(G_OBJECT(m_source), "location", m_rtspUrl.toUtf8().constData(), nullptr);
-
-    // уменьшаем задержку rtspsrc до 100мс (по дефолту 2000мс)
-    g_object_set(G_OBJECT(m_source), "latency", 100, nullptr);
-
     // добавляем элементы в пайплайн (владение передается)
     // GStreamer увеличивает внутренний счетчик ссылок
     // при уничтожении папйплайна счетчик уменьшится, а объекты очистятся через обертку
@@ -77,14 +71,18 @@ bool VideoWorker::buildPipeline()
     // когда rtspsrc примет входной поток, у него появится выход
     // подключаем си-сигнал "pad-added", который сработает, когда поток подключится к камере
     g_signal_connect(m_source, "pad-added", G_CALLBACK(VideoWorker::onDecodebinPadAdded), m_decodebin);
+    //g_signal_connect(m_source, "pad-added", G_CALLBACK(VideoWorker::onRtspsrcPadAdded), m_decodebin);
 
     // также и у decodebin нет статического выхода
     g_signal_connect(m_decodebin, "pad-added", G_CALLBACK(VideoWorker::onRtspsrcPadAdded), m_videosink);
+    //g_signal_connect(m_decodebin, "pad-added", G_CALLBACK(VideoWorker::onDecodebinPadAdded), m_videosink);
 
     return true;
 }
 
+// подключает к decodebin и сохраняет кодек
 void VideoWorker::onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer data) {
+    VideoWorker *self = static_cast<VideoWorker*>(data);
     auto *decodebin = GST_ELEMENT(data);
     GstPad *targetPad = gst_element_get_static_pad(decodebin, "sink");
 
@@ -98,11 +96,19 @@ void VideoWorker::onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer da
     const gchar *mediaKey = gst_structure_get_name(capsStruct);
 
     // rtspsrc предоставляет поле "media" (video/audio/application)
-    if (mediaKey && g_str_has_prefix(mediaKey, "video")) {
+    //if (mediaKey && g_str_has_prefix(mediaKey, "video")) {
+    if (mediaKey && (g_str_has_prefix(mediaKey, "application/") || g_str_has_prefix(mediaKey, "video/"))) {
         if (gst_pad_link(newPad, targetPad) != GST_PAD_LINK_OK) {
             qCritical() << "Error connecting rtspsrc to decodebin";
         } else {
             qDebug() << "rtspsrc successfully linked to decodebin";
+
+            // // подписываемся на изменение caps у этого пада
+            // g_signal_connect(newPad, "notify::caps", G_CALLBACK(VideoWorker::onPadCapsChanged), self);
+
+            // сохраняем кодек (извлекаем понятное имя)
+            QMutexLocker lock(&self->m_diagMutex);
+            self->m_codec = self->extractCodecName(capsStruct);
         }
     }
 
@@ -112,6 +118,7 @@ void VideoWorker::onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer da
 
 // 2. Обработчик для decodebin (динамически подключает к videosink)
 void VideoWorker::onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer data) {
+    VideoWorker *self = static_cast<VideoWorker*>(data);
     auto *videosink = GST_ELEMENT(data);
     GstPad *targetPad = gst_element_get_static_pad(videosink, "sink");
 
@@ -125,16 +132,68 @@ void VideoWorker::onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer 
     const gchar *name = gst_structure_get_name(capsStruct);
 
     // decodebin выдает "video/x-raw..." после декодирования
-    if (name && g_str_has_prefix(name, "application/")) {
+    //if (name && g_str_has_prefix(name, "application/")) {
+    if (name && (g_str_has_prefix(name, "application/") || g_str_has_prefix(name, "video/"))) {
         if (gst_pad_link(newPad, targetPad) != GST_PAD_LINK_OK) {
             qCritical() << "Error connecting decodebin to videosink";
         } else {
             qDebug() << "decodebin successfully linked to videosink";
+
+            // // сохраняем кодек (извлекаем понятное имя)
+            // QMutexLocker lock(&self->m_diagMutex);
+            // self->m_codec = self->extractCodecName(capsStruct);
+
+            // подписываемся на изменение caps у этого пада
+            g_signal_connect(newPad, "notify::caps", G_CALLBACK(VideoWorker::onPadCapsChanged), self);
         }
     }
 
     gst_caps_unref(caps);
     gst_object_unref(targetPad);
+}
+
+void VideoWorker::onPadCapsChanged(GstPad *pad, GParamSpec *pspec, gpointer user_data)
+{
+    VideoWorker *self = static_cast<VideoWorker*>(user_data);
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps) return;
+
+    GstStructure *structure = gst_caps_get_structure(caps, 0);
+    if (!structure) {
+        gst_caps_unref(caps);
+        return;
+    }
+
+    gint width = 0, height = 0;
+    if (gst_structure_get_int(structure, "width", &width) &&
+        gst_structure_get_int(structure, "height", &height)) {
+
+        QMutexLocker lock(&self->m_diagMutex);
+        QString codec = self->m_codec;  // копируем под защитой
+        lock.unlock();
+
+        // Эмитируем сигнал ТОЛЬКО если данные изменились
+        if (width != self->m_width || height != self->m_height || codec != self->m_lastCodec) {
+            self->m_width = width;
+            self->m_height = height;
+            self->m_lastCodec = codec;
+            // Эмитим из любого потока – Qt обеспечит QueuedConnection в главный поток
+            emit self->videoInfoUpdated(width, height, codec);
+        }
+    }
+
+    gst_caps_unref(caps);
+}
+
+QString VideoWorker::extractCodecName(const GstStructure *s)
+{
+    const gchar *name = gst_structure_get_name(s);
+    if (!name) return "Unknown";
+
+    if (strcmp(name, "video/x-h264") == 0) return "H.264";
+    if (strcmp(name, "video/x-h265") == 0) return "H.265";
+    // можно добавить другие известные кодеки
+    return QString::fromUtf8(name).mid(6); // убираем "video/"
 }
 
 void VideoWorker::resetPtrs()
