@@ -23,6 +23,7 @@ signals:
     void statusChanged(const QString &status);
     void videoInfoUpdated(int width, int height, const QString &codec);
     void errorOccurred(const QString &message);
+    void fpsUpdated(double fps);
 
 protected:
     void run() override;
@@ -33,11 +34,14 @@ private:
     static void  onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer data);
 
     static GstPadProbeReturn onVideoSinkProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data);
-    static void onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer user_data);
+    static void onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer data);
 
-    static gboolean onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_data);
+    static gboolean onBusMessage(GstBus *bus, GstMessage *msg, gpointer data);
 
     QString extractCodecName(const GstStructure *s);
+
+    static GstPadProbeReturn onFpsProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data);
+    static gboolean onFpsTimer(gpointer data);
 
     bool buildPipeline();
     void resetPtrs();
@@ -65,6 +69,10 @@ private:
     bool m_hadWarning = false;
 
     QString m_lastError;
+
+    std::atomic<uint64_t> m_frameCount{0};
+    std::atomic<double> m_currentFps{0.0};
+    guint m_fpsTimerId = 0;
 };
 
 #endif // VIDEOWORKER_H

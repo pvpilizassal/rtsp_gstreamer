@@ -43,6 +43,12 @@ void VideoWorker::stopStreaming()
         qDebug() << "Stop GMainLoop...";
         g_main_loop_quit(m_mainLoop.get());
     }
+
+    if (m_fpsTimerId) {
+        qDebug() << "Stop FPC-counter...";
+        g_source_remove(m_fpsTimerId);
+        m_fpsTimerId = 0;
+    }
 }
 
 bool VideoWorker::buildPipeline()
@@ -137,6 +143,13 @@ void VideoWorker::onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer 
                               VideoWorker::onVideoSinkProbe,
                               self,
                               nullptr);
+
+            // probe для подсчёта кадров
+            gst_pad_add_probe(targetPad,
+                              GST_PAD_PROBE_TYPE_BUFFER,
+                              VideoWorker::onFpsProbe,
+                              self,
+                              nullptr);
         } else {
             qCritical() << "Error linking decodebin to videosink";
         }
@@ -165,6 +178,24 @@ QString VideoWorker::extractCodecName(const GstStructure *s)
     return QString::fromUtf8(name).mid(6);
 }
 
+GstPadProbeReturn VideoWorker::onFpsProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data)
+{
+    VideoWorker *self = static_cast<VideoWorker*>(data);
+    self->m_frameCount.fetch_add(1, std::memory_order_relaxed);
+    return GST_PAD_PROBE_OK;   // не удаляем probe
+}
+
+gboolean VideoWorker::onFpsTimer(gpointer data)
+{
+    VideoWorker *self = static_cast<VideoWorker*>(data);
+    uint64_t count = self->m_frameCount.exchange(0, std::memory_order_relaxed);
+    // кол-во кадров за последнюю секунду
+    double fps = static_cast<double>(count);
+    self->m_currentFps.store(fps, std::memory_order_relaxed);
+    emit self->fpsUpdated(fps);
+    return TRUE;   // продолжать таймер
+}
+
 GstPadProbeReturn VideoWorker::onVideoSinkProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data)
 {
     VideoWorker *self = static_cast<VideoWorker*>(data);
@@ -190,9 +221,9 @@ GstPadProbeReturn VideoWorker::onVideoSinkProbe(GstPad *pad, GstPadProbeInfo *in
     return GST_PAD_PROBE_REMOVE;   // больше не вызываем
 }
 
-void VideoWorker::onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer user_data)
+void VideoWorker::onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer data)
 {
-    VideoWorker *self = static_cast<VideoWorker*>(user_data);
+    VideoWorker *self = static_cast<VideoWorker*>(data);
     GstCaps *caps = gst_pad_get_current_caps(pad);
     if (!caps) return;
 
@@ -208,9 +239,9 @@ void VideoWorker::onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer user_
     gst_caps_unref(caps);
 }
 
-gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_data)
+gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer data)
 {
-    VideoWorker *self = static_cast<VideoWorker*>(user_data);
+    VideoWorker *self = static_cast<VideoWorker*>(data);
 
     switch (GST_MESSAGE_TYPE(msg)) {
     // неверная ссылка
@@ -251,11 +282,10 @@ gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_d
     case GST_MESSAGE_EOS:
         qDebug() << "End of stream";
         if (self->m_hadWarning) {
-            // Внезапный обрыв: был warning от источника
             self->m_errorOccurred = true;
             emit self->statusChanged("Error: Stream interrupted");
         } else {
-            // Штатное завершение
+            // штатное завершение
             emit self->statusChanged("Disconnected");
         }
         if (self->m_mainLoop && g_main_loop_is_running(self->m_mainLoop.get())) {
@@ -269,7 +299,7 @@ gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_d
         QString warnMsg = QString::fromUtf8(warn->message);
         qWarning() << "GStreamer warning:" << warnMsg;
 
-        // Если это предупреждение о потере соединения – запоминаем
+        // если это предупреждение о потере соединения – запоминаем
         if (warnMsg.contains("Could not read from resource")) {
             self->m_hadWarning = true;
         }
@@ -304,6 +334,9 @@ void VideoWorker::resetPtrs()
     m_errorOccurred = false;
     m_hadWarning = false;
     m_errorOccurred = false;
+
+    m_frameCount = 0;
+    m_currentFps = 0.0;
 }
 
 void VideoWorker::run()
@@ -339,6 +372,8 @@ void VideoWorker::run()
 
     emit statusChanged("Playing");
 
+    m_fpsTimerId = g_timeout_add_seconds(1, VideoWorker::onFpsTimer, this);
+
     g_main_loop_run(m_mainLoop.get());
 
     // выход из цикла GMainLoop
@@ -351,6 +386,11 @@ void VideoWorker::run()
     if (m_busWatchId) {
         g_source_remove(m_busWatchId);
         m_busWatchId = 0;
+    }
+
+    if (m_fpsTimerId) {
+        g_source_remove(m_fpsTimerId);
+        m_fpsTimerId = 0;
     }
 
     // освобождение ресурсов

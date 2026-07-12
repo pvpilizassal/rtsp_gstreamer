@@ -66,7 +66,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
 
     connect(m_worker, &VideoWorker::videoInfoUpdated, this, &MainWindow::onVideoInfoUpdated);
 
-    // connect(m_worker, &VideoWorker::errorOccurred, this, &MainWindow::onErrorOccurred);
+    connect(m_worker, &VideoWorker::fpsUpdated, this, &MainWindow::onFpsUpdated);
 }
 
 // m_worker удалится сам, так как у него parent = this
@@ -90,9 +90,9 @@ void MainWindow::onDisconnectClicked()
 {
     m_btnDisconnect->setEnabled(false);
     m_worker->stopStreaming();
-    m_lblResolution->setText(QString("Resolution:-"));
-    m_lblCodec->setText(QString("Codec:-"));
-    m_lblFPS->setText(QString("FPS:-"));
+    m_lblResolution->setText(QString("Resolution: -"));
+    m_lblCodec->setText(QString("Codec: -"));
+    m_lblFPS->setText(QString("FPS: -"));
 }
 
 void MainWindow::onStatusChanged(const QString &status)
@@ -121,7 +121,7 @@ void MainWindow::onVideoInfoUpdated(int width, int height, const QString &codec)
     m_lblCodec->setText(QString("Codec: %1").arg(codec));
 }
 
-// void MainWindow::onErrorOccurred(const QString &message)
-// {
-//     QMessageBox::critical(this, "Stream Error", message);
-// }
+void MainWindow::onFpsUpdated(double fps)
+{
+    m_lblFPS->setText(QString("FPS: %1").arg(fps, 0, 'f', 1));
+}

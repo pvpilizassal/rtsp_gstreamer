@@ -29,7 +29,7 @@ private slots:
     void onDisconnectClicked();
     void onStatusChanged(const QString &status);
     void onVideoInfoUpdated(int width, int height, const QString &codec);
-    //void onErrorOccurred(const QString &message);
+    void onFpsUpdated(double fps);
 
 private:
     std::unique_ptr<Ui::MainWindow> ui;
