@@ -22,7 +22,7 @@ signals:
     // сигнал для отправки статуса в UI
     void statusChanged(const QString &status);
     void videoInfoUpdated(int width, int height, const QString &codec);
-
+    void errorOccurred(const QString &message);
 
 protected:
     void run() override;
@@ -34,6 +34,8 @@ private:
 
     static GstPadProbeReturn onVideoSinkProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data);
     static void onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer user_data);
+
+    static gboolean onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_data);
 
     QString extractCodecName(const GstStructure *s);
 
@@ -58,6 +60,8 @@ private:
     GstElement* m_videosink = nullptr;
 
     gulong m_busWatchId = 0;
+    bool m_errorOccurred = false;
+    QString m_lastError;
 };
 
 #endif // VIDEOWORKER_H
