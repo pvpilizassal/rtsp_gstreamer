@@ -213,28 +213,51 @@ gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_d
     VideoWorker *self = static_cast<VideoWorker*>(user_data);
 
     switch (GST_MESSAGE_TYPE(msg)) {
+    // неверная ссылка
     case GST_MESSAGE_ERROR: {
         GError *err = nullptr;
         gchar *debug_info = nullptr;
+        QString errorMsg = "";
+        QString errorStr = "";
+
         gst_message_parse_error(msg, &err, &debug_info);
-        QString errorMsg = QString::fromUtf8(err->message);
+        errorMsg = QString::fromUtf8(err->message);
         qCritical() << "GStreamer error:" << err->message;
         if (debug_info) {
             qDebug() << "Debug info:" << debug_info;
             g_free(debug_info);
         }
+
         g_error_free(err);
 
-        emit self->statusChanged("Error");
+        if (errorMsg.contains("Not found", Qt::CaseInsensitive))
+            errorStr = "Stream not found (404) — check URL";
+        else if (errorMsg.contains("Unauthorized", Qt::CaseInsensitive))
+            errorStr = "Authentication failed (401)";
+        else if (errorMsg.contains("Could not connect", Qt::CaseInsensitive))
+            errorStr = "Connection refused — server unreachable";
+
+        self->m_errorOccurred = true;
+        self->m_lastError = errorStr;
+        emit self->statusChanged(QString("Error: %1").arg(errorStr));
+
         // Останавливаем главный цикл, чтобы выйти из run()
         if (self->m_mainLoop && g_main_loop_is_running(self->m_mainLoop.get())) {
             g_main_loop_quit(self->m_mainLoop.get());
         }
         break;
     }
+    // спонтанный разрыв связи с потоком
     case GST_MESSAGE_EOS:
         qDebug() << "End of stream";
-        emit self->statusChanged("Disconnected");
+        if (self->m_hadWarning) {
+            // Внезапный обрыв: был warning от источника
+            self->m_errorOccurred = true;
+            emit self->statusChanged("Error: Stream interrupted");
+        } else {
+            // Штатное завершение
+            emit self->statusChanged("Disconnected");
+        }
         if (self->m_mainLoop && g_main_loop_is_running(self->m_mainLoop.get())) {
             g_main_loop_quit(self->m_mainLoop.get());
         }
@@ -243,7 +266,14 @@ gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_d
         GError *warn = nullptr;
         gchar *debug_info = nullptr;
         gst_message_parse_warning(msg, &warn, &debug_info);
-        qWarning() << "GStreamer warning:" << warn->message;
+        QString warnMsg = QString::fromUtf8(warn->message);
+        qWarning() << "GStreamer warning:" << warnMsg;
+
+        // Если это предупреждение о потере соединения – запоминаем
+        if (warnMsg.contains("Could not read from resource")) {
+            self->m_hadWarning = true;
+        }
+
         g_error_free(warn);
         if (debug_info) g_free(debug_info);
         break;
@@ -258,12 +288,22 @@ gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_d
 void VideoWorker::resetPtrs()
 {
     QMutexLocker locker(&m_mutex);
+    if (m_pipeline) {
+        gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
+    }
+
     m_mainLoop.reset();
     m_pipeline.reset();
+
     m_width = -1;
     m_height = -1;
     m_codec.clear();
     m_lastCodec.clear();
+
+    m_lastError.clear();
+    m_errorOccurred = false;
+    m_hadWarning = false;
+    m_errorOccurred = false;
 }
 
 void VideoWorker::run()
@@ -301,7 +341,12 @@ void VideoWorker::run()
 
     g_main_loop_run(m_mainLoop.get());
 
+    // выход из цикла GMainLoop
     qDebug() << "GMainLoop stop. Quit from thread.";
+
+    if (!m_errorOccurred) {
+        emit statusChanged("Disconnected");
+    }
 
     if (m_busWatchId) {
         g_source_remove(m_busWatchId);
@@ -311,5 +356,4 @@ void VideoWorker::run()
     // освобождение ресурсов
     resetPtrs();
 
-    emit statusChanged("Disconnected");
 }

@@ -60,7 +60,10 @@ private:
     GstElement* m_videosink = nullptr;
 
     gulong m_busWatchId = 0;
+
     bool m_errorOccurred = false;
+    bool m_hadWarning = false;
+
     QString m_lastError;
 };
 
