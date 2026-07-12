@@ -26,6 +26,12 @@ void VideoWorker::stopStreaming()
 {
     QMutexLocker locker(&m_mutex);
 
+    if (m_busWatchId) {
+        qDebug() << "Stop bus-watcher...";
+        g_source_remove(m_busWatchId);
+        m_busWatchId = 0;
+    }
+
     if (m_pipeline) {
         qDebug() << "Stop pipeline...";
         // команда GST_STATE_NULL разрывает сетевое RTSP-соединение с камерой
@@ -202,33 +208,102 @@ void VideoWorker::onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer user_
     gst_caps_unref(caps);
 }
 
-// void VideoWorker::onDecoderSinkCapsChanged(GstPad *pad, GParamSpec *pspec, gpointer user_data)
-// {
-//     VideoWorker *self = static_cast<VideoWorker*>(user_data);
-//     GstCaps *caps = gst_pad_get_current_caps(pad);
-//     if (!caps) return;
+gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer user_data)
+{
+    VideoWorker *self = static_cast<VideoWorker*>(user_data);
 
-//     GstStructure *s = gst_caps_get_structure(caps, 0);
-//     const gchar *name = gst_structure_get_name(s);
-//     if (name && g_str_has_prefix(name, "video/")) {
-//         self->m_codec = self->extractCodecName(s);
-//         qDebug() << "Codec detected:" << self->m_codec;
+    switch (GST_MESSAGE_TYPE(msg)) {
+    // неверная ссылка
+    case GST_MESSAGE_ERROR: {
+        GError *err = nullptr;
+        gchar *debug_info = nullptr;
+        QString errorMsg = "";
+        QString errorStr = "";
 
-//         // отключаем обработчик – он сработал
-//         g_signal_handlers_disconnect_by_func(pad, (gpointer)VideoWorker::onDecoderSinkCapsChanged, self);
-//     }
-//     gst_caps_unref(caps);
-// }
+        gst_message_parse_error(msg, &err, &debug_info);
+        errorMsg = QString::fromUtf8(err->message);
+        qCritical() << "GStreamer error:" << err->message;
+        if (debug_info) {
+            qDebug() << "Debug info:" << debug_info;
+            g_free(debug_info);
+        }
+
+        g_error_free(err);
+
+        if (errorMsg.contains("Not found", Qt::CaseInsensitive))
+            errorStr = "Stream not found (404) — check URL";
+        else if (errorMsg.contains("Unauthorized", Qt::CaseInsensitive))
+            errorStr = "Authentication failed (401)";
+        else if (errorMsg.contains("Could not connect", Qt::CaseInsensitive))
+            errorStr = "Connection refused — server unreachable";
+
+        self->m_errorOccurred = true;
+        self->m_lastError = errorStr;
+        emit self->statusChanged(QString("Error: %1").arg(errorStr));
+
+        // Останавливаем главный цикл, чтобы выйти из run()
+        if (self->m_mainLoop && g_main_loop_is_running(self->m_mainLoop.get())) {
+            g_main_loop_quit(self->m_mainLoop.get());
+        }
+        break;
+    }
+    // спонтанный разрыв связи с потоком
+    case GST_MESSAGE_EOS:
+        qDebug() << "End of stream";
+        if (self->m_hadWarning) {
+            // Внезапный обрыв: был warning от источника
+            self->m_errorOccurred = true;
+            emit self->statusChanged("Error: Stream interrupted");
+        } else {
+            // Штатное завершение
+            emit self->statusChanged("Disconnected");
+        }
+        if (self->m_mainLoop && g_main_loop_is_running(self->m_mainLoop.get())) {
+            g_main_loop_quit(self->m_mainLoop.get());
+        }
+        break;
+    case GST_MESSAGE_WARNING: {
+        GError *warn = nullptr;
+        gchar *debug_info = nullptr;
+        gst_message_parse_warning(msg, &warn, &debug_info);
+        QString warnMsg = QString::fromUtf8(warn->message);
+        qWarning() << "GStreamer warning:" << warnMsg;
+
+        // Если это предупреждение о потере соединения – запоминаем
+        if (warnMsg.contains("Could not read from resource")) {
+            self->m_hadWarning = true;
+        }
+
+        g_error_free(warn);
+        if (debug_info) g_free(debug_info);
+        break;
+    }
+    // добавить обработку других сообщений
+    default:
+        break;
+    }
+    return TRUE;
+}
 
 void VideoWorker::resetPtrs()
 {
     QMutexLocker locker(&m_mutex);
+    if (m_pipeline) {
+        gst_element_set_state(m_pipeline.get(), GST_STATE_NULL);
+    }
+
     m_mainLoop.reset();
     m_pipeline.reset();
+
     m_width = -1;
     m_height = -1;
     m_codec.clear();
     m_lastCodec.clear();
+
+    m_lastError.clear();
+    m_errorOccurred = false;
+    m_hadWarning = false;
+    m_errorOccurred = false;
 }
 
 void VideoWorker::run()
@@ -241,6 +316,11 @@ void VideoWorker::run()
         emit statusChanged("Error");
         return;
     }
+
+    // обработчик сообщений шины
+    GstBus *bus = gst_pipeline_get_bus(GST_PIPELINE(m_pipeline.get()));
+    m_busWatchId = gst_bus_add_watch(bus, VideoWorker::onBusMessage, this);
+    gst_object_unref(bus);
 
     // передача дескриптора окна (winId) в элемент отображения видео
     gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(m_videosink), m_winId);
@@ -261,10 +341,19 @@ void VideoWorker::run()
 
     g_main_loop_run(m_mainLoop.get());
 
+    // выход из цикла GMainLoop
     qDebug() << "GMainLoop stop. Quit from thread.";
+
+    if (!m_errorOccurred) {
+        emit statusChanged("Disconnected");
+    }
+
+    if (m_busWatchId) {
+        g_source_remove(m_busWatchId);
+        m_busWatchId = 0;
+    }
 
     // освобождение ресурсов
     resetPtrs();
 
-    emit statusChanged("Disconnected");
 }

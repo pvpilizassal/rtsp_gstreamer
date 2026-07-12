@@ -7,6 +7,7 @@
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
                                           ui(new Ui::MainWindow),
@@ -64,6 +65,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
     connect(m_worker, &VideoWorker::statusChanged, this, &MainWindow::onStatusChanged);
 
     connect(m_worker, &VideoWorker::videoInfoUpdated, this, &MainWindow::onVideoInfoUpdated);
+
+    // connect(m_worker, &VideoWorker::errorOccurred, this, &MainWindow::onErrorOccurred);
 }
 
 // m_worker удалится сам, так как у него parent = this
@@ -96,11 +99,16 @@ void MainWindow::onStatusChanged(const QString &status)
 {
     m_lblStatus->setText(QString("Status: %1").arg(status));
 
+    if (status.startsWith("Error:"))
+        m_lblStatus->setStyleSheet("color: red;");
+    else
+        m_lblStatus->setStyleSheet("");
+
     // доступность кнопок в зависимости от состояния m_worker
     if (status == "Playing") {
         m_btnDisconnect->setEnabled(true);
         m_btnConnect->setEnabled(false);
-    } else if (status == "Disconnected" || status == "Error") {
+    } else if (status == "Disconnected" || status.startsWith("Error")) {
         m_btnConnect->setEnabled(true);
         m_txtUrl->setEnabled(true);
         m_btnDisconnect->setEnabled(false);
@@ -112,3 +120,8 @@ void MainWindow::onVideoInfoUpdated(int width, int height, const QString &codec)
     m_lblResolution->setText(QString("Resolution: %1x%2").arg(width).arg(height));
     m_lblCodec->setText(QString("Codec: %1").arg(codec));
 }
+
+// void MainWindow::onErrorOccurred(const QString &message)
+// {
+//     QMessageBox::critical(this, "Stream Error", message);
+// }
