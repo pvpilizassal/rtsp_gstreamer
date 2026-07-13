@@ -7,6 +7,8 @@
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QLineEdit>
+#include <memory>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -26,6 +28,8 @@ private slots:
     void onConnectClicked();
     void onDisconnectClicked();
     void onStatusChanged(const QString &status);
+    void onVideoInfoUpdated(int width, int height, const QString &codec);
+    void onFpsUpdated(double fps);
 
 private:
     std::unique_ptr<Ui::MainWindow> ui;
@@ -35,5 +39,12 @@ private:
     QPushButton* m_btnConnect = nullptr;
     QPushButton* m_btnDisconnect = nullptr;
     QLabel* m_lblStatus = nullptr;
+    QLabel *m_lblResolution;
+    QLabel *m_lblCodec;
+    QLabel *m_lblFPS;
+
+    QLineEdit* m_txtUrl = nullptr;
+
+    QWidget* m_videoContainer = nullptr;
 };
 #endif // MAINWINDOW_H
