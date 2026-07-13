@@ -82,11 +82,9 @@ bool VideoWorker::buildPipeline()
     // у "холодного" плагина rtspsrc нет выхода, ему нечем связаться с декодером
     // когда rtspsrc примет входной поток, у него появится выход
     // подключаем си-сигнал "pad-added", который сработает, когда поток подключится к камере
-    //g_signal_connect(m_source, "pad-added", G_CALLBACK(VideoWorker::onDecodebinPadAdded), m_decodebin);
     g_signal_connect(m_source, "pad-added", G_CALLBACK(VideoWorker::onRtspsrcPadAdded), this);
 
     // также и у decodebin нет статического выхода
-    //g_signal_connect(m_decodebin, "pad-added", G_CALLBACK(VideoWorker::onRtspsrcPadAdded), m_videosink);
     g_signal_connect(m_decodebin, "pad-added", G_CALLBACK(VideoWorker::onDecodebinPadAdded), this);
 
     return true;
@@ -113,7 +111,7 @@ void VideoWorker::onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer da
     }
 
     GstStructure *capsStruct = gst_caps_get_structure(caps, 0);
-    const gchar *mediaKey = gst_structure_get_name(capsStruct); // Тут будет "application/x-rtp"
+    const gchar *mediaKey = gst_structure_get_name(capsStruct);
 
     if (mediaKey && strcmp(mediaKey, "application/x-rtp") == 0) {
         const gchar *mediaType = gst_structure_get_string(capsStruct, "media");
