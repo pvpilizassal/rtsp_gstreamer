@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(rtsp_gstreamer VERSION 0.7.3 LANGUAGES CXX)
+project(rtsp_gstreamer VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
