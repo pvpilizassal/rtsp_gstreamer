@@ -35,6 +35,7 @@ private:
 
     static GstPadProbeReturn onVideoSinkProbe(GstPad *pad, GstPadProbeInfo *info, gpointer data);
     static void onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer data);
+    //static void onDecodebinElementAdded(GstBin *bin, GstElement *element, gpointer data);
 
     static gboolean onBusMessage(GstBus *bus, GstMessage *msg, gpointer data);
 

@@ -92,7 +92,6 @@ bool VideoWorker::buildPipeline()
     return true;
 }
 
-
 void VideoWorker::onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer data) {
     VideoWorker *self = static_cast<VideoWorker*>(data);
     GstPad *targetPad = gst_element_get_static_pad(self->m_decodebin, "sink");
@@ -102,18 +101,41 @@ void VideoWorker::onRtspsrcPadAdded(GstElement *src, GstPad *newPad, gpointer da
         return;
     }
 
-    GstCaps *caps = gst_pad_query_caps(newPad, nullptr);
-    GstStructure *capsStruct = gst_caps_get_structure(caps, 0);
-    const gchar *mediaKey = gst_structure_get_name(capsStruct);
+    // запрашиваем текущие капсы
+    GstCaps *caps = gst_pad_get_current_caps(newPad);
+    if (!caps) {
+        caps = gst_pad_query_caps(newPad, nullptr);
+    }
 
-    // rtspsrc предоставляет поле "media" (video/audio/application)
-    if (mediaKey && (g_str_has_prefix(mediaKey, "video") || g_str_has_prefix(mediaKey, "application"))) {
-        //self->m_codec = self->extractCodecName(capsStruct);
-        if (gst_pad_link(newPad, targetPad) != GST_PAD_LINK_OK) {
-            qCritical() << "Error connecting rtspsrc to decodebin";
-        } else {
-            g_signal_connect(newPad, "notify::caps", G_CALLBACK(VideoWorker::onRtspsrcCapsChanged), self);
-            qDebug() << "rtspsrc successfully linked to decodebin, codec:" << self->m_codec;
+    if (!caps) {
+        gst_object_unref(targetPad);
+        return;
+    }
+
+    GstStructure *capsStruct = gst_caps_get_structure(caps, 0);
+    const gchar *mediaKey = gst_structure_get_name(capsStruct); // Тут будет "application/x-rtp"
+
+    if (mediaKey && strcmp(mediaKey, "application/x-rtp") == 0) {
+        const gchar *mediaType = gst_structure_get_string(capsStruct, "media");
+
+        if (mediaType && strcmp(mediaType, "video") == 0) {
+            // извлекаем кодек из RTP-заголовка ("encoding-name")
+            const gchar *encodingName = gst_structure_get_string(capsStruct, "encoding-name");
+            if (encodingName) {
+                // "H264" -> "H.264", "H265" -> "H.265" для красоты
+                QString rtpCodec = QString::fromUtf8(encodingName);
+                if (rtpCodec == "H264") self->m_codec = "H.264";
+                else if (rtpCodec == "H265" || rtpCodec == "HEVC") self->m_codec = "H.265";
+                else self->m_codec = rtpCodec;
+
+                qDebug() << "Successfully parsed codec from RTP:" << self->m_codec;
+            }
+
+            if (gst_pad_link(newPad, targetPad) != GST_PAD_LINK_OK) {
+                qCritical() << "Error connecting rtspsrc to decodebin";
+            } else {
+                qDebug() << "rtspsrc successfully linked to decodebin";
+            }
         }
     }
 
@@ -130,21 +152,29 @@ void VideoWorker::onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer 
         return;
     }
 
-    GstCaps *caps = gst_pad_query_caps(newPad, nullptr);
+    GstCaps *caps = gst_pad_get_current_caps(newPad);
+    if (!caps) caps = gst_pad_query_caps(newPad, nullptr);
+    if (!caps) {
+        gst_object_unref(targetPad);
+        return;
+    }
+
     GstStructure *capsStruct = gst_caps_get_structure(caps, 0);
     const gchar *mediaKey = gst_structure_get_name(capsStruct);
 
+    // decodebin на выходе дает декодированное видео video/x-raw
     if (mediaKey && g_str_has_prefix(mediaKey, "video/")) {
         if (gst_pad_link(newPad, targetPad) == GST_PAD_LINK_OK) {
             qDebug() << "decodebin video pad linked to videosink";
-            // probe на sink-пад videosink для захвата разрешения
+
+            // ставим пробу на разрешение — кодек к этому моменту уже известен
             gst_pad_add_probe(targetPad,
                               GST_PAD_PROBE_TYPE_BUFFER,
                               VideoWorker::onVideoSinkProbe,
                               self,
                               nullptr);
 
-            // probe для подсчёта кадров
+            // проба для подсчёта кадров
             gst_pad_add_probe(targetPad,
                               GST_PAD_PROBE_TYPE_BUFFER,
                               VideoWorker::onFpsProbe,
@@ -152,12 +182,6 @@ void VideoWorker::onDecodebinPadAdded(GstElement *src, GstPad *newPad, gpointer 
                               nullptr);
         } else {
             qCritical() << "Error linking decodebin to videosink";
-        }
-    }
-    // application/x-rtp и прочие – просто линкуем без подписки
-    else if (mediaKey && g_str_has_prefix(mediaKey, "application/")) {
-        if (gst_pad_link(newPad, targetPad) != GST_PAD_LINK_OK) {
-            qCritical() << "Error linking decodebin to videosink (rtp)";
         }
     }
 
@@ -171,10 +195,10 @@ QString VideoWorker::extractCodecName(const GstStructure *s)
     if (!name) return "Unknown";
     if (strcmp(name, "video/x-h264") == 0) return "H.264";
     if (strcmp(name, "video/x-h265") == 0) return "H.265";
-    // На всякий случай другие варианты:
+
     if (strcmp(name, "video/x-vp8") == 0)  return "VP8";
     if (strcmp(name, "video/x-vp9") == 0)  return "VP9";
-    // fallback – убираем "video/"
+    // убираем "video/"
     return QString::fromUtf8(name).mid(6);
 }
 
@@ -233,7 +257,7 @@ void VideoWorker::onRtspsrcCapsChanged(GstPad *pad, GParamSpec *, gpointer data)
         self->m_codec = self->extractCodecName(s);
         qDebug() << "Codec detected:" << self->m_codec;
 
-        // Отключаем обработчик, чтобы не срабатывал повторно
+        // отключаем обработчик, чтобы не срабатывал повторно
         g_signal_handlers_disconnect_by_func(pad, (gpointer)VideoWorker::onRtspsrcCapsChanged, self);
     }
     gst_caps_unref(caps);
@@ -261,7 +285,8 @@ gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer data)
 
         g_error_free(err);
 
-        if (errorMsg.contains("Not found", Qt::CaseInsensitive))
+        if (errorMsg.contains("Not found", Qt::CaseInsensitive)
+         || errorMsg.contains("Unhandled error", Qt::CaseInsensitive))
             errorStr = "Stream not found (404) — check URL";
         else if (errorMsg.contains("Unauthorized", Qt::CaseInsensitive))
             errorStr = "Authentication failed (401)";
@@ -272,7 +297,7 @@ gboolean VideoWorker::onBusMessage(GstBus *bus, GstMessage *msg, gpointer data)
         self->m_lastError = errorStr;
         emit self->statusChanged(QString("Error: %1").arg(errorStr));
 
-        // Останавливаем главный цикл, чтобы выйти из run()
+        // останавливаем главный цикл, чтобы выйти из run()
         if (self->m_mainLoop && g_main_loop_is_running(self->m_mainLoop.get())) {
             g_main_loop_quit(self->m_mainLoop.get());
         }
@@ -333,7 +358,6 @@ void VideoWorker::resetPtrs()
     m_lastError.clear();
     m_errorOccurred = false;
     m_hadWarning = false;
-    m_errorOccurred = false;
 
     m_frameCount = 0;
     m_currentFps = 0.0;
@@ -379,18 +403,20 @@ void VideoWorker::run()
     // выход из цикла GMainLoop
     qDebug() << "GMainLoop stop. Quit from thread.";
 
-    if (!m_errorOccurred) {
-        emit statusChanged("Disconnected");
-    }
-
+    // удаляем вотч
     if (m_busWatchId) {
         g_source_remove(m_busWatchId);
         m_busWatchId = 0;
     }
 
+    // удаляем таймер
     if (m_fpsTimerId) {
         g_source_remove(m_fpsTimerId);
         m_fpsTimerId = 0;
+    }
+
+    if (!m_errorOccurred) {
+        emit statusChanged("Disconnected");
     }
 
     // освобождение ресурсов
