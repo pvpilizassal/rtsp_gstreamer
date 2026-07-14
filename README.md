@@ -23,7 +23,7 @@
 'mingw-w64-x86_64-gst-plugins-ugly', 'mingw-w64-x86_64-gst-libav'.
 
 ## Сборка из исходников
-[Скачать архив с релизной версией](https://github.com/pvpilizassal/rtsp_gstreamer/releases/tag/0.0.1)
+[Скачать архив с релизной версией](https://github.com/pvpilizassal/rtsp_gstreamer/releases/tag/0.0.2)
 Если из архива приложение в параметре "Status:" сообщение "Error: Pipeline creation failed. Please reinstall the application." - то это проблема со сборкой библиотек. Тогда запустить можно иначе:
 1. Установите Qt6 (с MinGW), CMake, GStreamer.
 2. Откройте проект в Qt Creator или выполните в терминале:
