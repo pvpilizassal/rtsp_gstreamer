@@ -368,7 +368,8 @@ void VideoWorker::run()
 
     // создание пайплайна
     if (!buildPipeline()) {
-        emit statusChanged("Error");
+        if (!m_errorOccurred)
+            emit statusChanged("Error");
         return;
     }
 
@@ -385,7 +386,7 @@ void VideoWorker::run()
     if (!m_mainLoop)
     {
         qCritical() << "Error create GMainLoop!";
-        emit statusChanged("Error");
+        emit statusChanged(QString("Error: Pipeline creation failed. Please reinstall the application."));
         return;
     }
 
